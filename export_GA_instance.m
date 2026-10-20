@@ -1,4 +1,4 @@
-%% export_GA_instance() - Writes an MRTA problem to the input file of the GA executable (see ga_MRTA)
+%% export_GA_instance() - Writes an MRTA problem to the input file of the GA and CBBA executables (see ga_MRTA)
 %
 % The file contains the directed location graph (edges and their weights w_{i,j}, with the costs of @prob,
 % i.e., normalized if prob.normalize_costs() was called), the location and capabilities (task types it can

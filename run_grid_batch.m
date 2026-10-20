@@ -1,7 +1,7 @@
 %% run_grid_batch() - Solves the random scenarios of a grid of Table I of the article
 %
 % Generates an n_rows x n_cols grid with m = n_rows agents and k = n_cols task-types
-% (Section VII-B), and solves num_tests scenarios (random agent locations and pending tasks)
+% (Section VII-A), and solves num_tests scenarios (random agent locations and pending tasks)
 % with PReDuaL and the central MILP (9). Results are saved in results/ and can be
 % summarized with analyze_rand_batch(n_rows*n_cols).
 %
@@ -13,7 +13,8 @@
 % 'num_tests': Number of scenarios (default 10)
 % 'save_me': Save the results in results/ (default true)
 % 'save_name': Prefix of the saved files (default "grid")
-% 'ignore_seed_central', 'ignore_seed_heur', 'heur', 'solver', 'central_max_time', 'central_tight': see run_rand_grid
+% 'ignore_seed_central', 'ignore_seed_heur', 'heur', 'solver', 'central_max_time', 'central_tight',
+% 'central_from': see run_rand_grid
 % 'skip_done': Skip the scenarios whose results in results/ are complete, i.e., contain the results of
 %              PReDuaL and of the central MILP (default false). Used to resume an interrupted batch
 %
@@ -32,6 +33,7 @@ function run_grid_batch(n_rows, n_cols, opt)
         opt.central_max_time (1, 1) double {mustBePositive} = inf
         opt.central_tight (1, 1) {mustBeNumericOrLogical} = false
         opt.skip_done (1, 1) {mustBeNumericOrLogical} = false
+        opt.central_from {mustBeText} = ""
     end
 
     n = n_rows * n_cols; % Number of locations
@@ -69,7 +71,7 @@ function run_grid_batch(n_rows, n_cols, opt)
         run_rand_grid(param, seed, opt.save_me, opt.save_name, 'save_add_time', false, ...
             'ignore_seed_central', opt.ignore_seed_central, 'ignore_seed_heur', opt.ignore_seed_heur, ...
             'heur', opt.heur, 'solver', opt.solver, 'central_max_time', opt.central_max_time, ...
-            'central_tight', opt.central_tight);
+            'central_tight', opt.central_tight, 'central_from', opt.central_from);
     end
 
 end

@@ -19,7 +19,6 @@ classdef AgentSolver < handle
         lbz % 1 x m cell with the default lower bounds of the decision variables of each agent
         ubz % 1 x m cell with the default upper bounds of the decision variables of each agent
         solver_args % Cell array with name/value options for MIQPholder.solve
-        lp_first = false % If true, the LP relaxation is solved first (see solve_one)
         parallel = false % true if the problems are solved in parallel
         const % parallel.pool.Constant with copies of the MIQPholder objects (used by the workers)
     end
@@ -70,7 +69,7 @@ classdef AgentSolver < handle
             start_time = tic;
             if self.parallel && n > 1
                 try
-                    [z, V, info] = AgentSolver.solve_parfor(self.const, agents, c, lbz, ubz, ws, self.solver_args, self.lp_first);
+                    [z, V, info] = AgentSolver.solve_parfor(self.const, agents, c, lbz, ubz, ws, self.solver_args);
                 catch ME
                     warning("AgentSolver:parallel_failed", ...
                         "The parallel solution of the MILP problems failed (%s). They are solved sequentially from now on.", ME.message);
@@ -96,7 +95,7 @@ classdef AgentSolver < handle
                 P.primal.lbz = lbz{q};
                 P.primal.ubz = ubz{q};
                 args = [self.solver_args, AgentSolver.ws_args(ws{q})];
-                [z{q}, V(q), info{q}] = AgentSolver.solve_one(P, args, self.lp_first);
+                [z{q}, V(q), info{q}] = P.solve(args{:});
                 P.primal = primal;
             end
         end
@@ -150,7 +149,7 @@ classdef AgentSolver < handle
 
     methods (Static)
 
-        function [z, V, info] = solve_parfor(const, agents, c, lbz, ubz, ws, solver_args, lp_first)
+        function [z, V, info] = solve_parfor(const, agents, c, lbz, ubz, ws, solver_args)
             % Solves the problems in parallel. @const.Value is a cell array with copies of the
             % MIQPholder objects of the agents on each worker.
             n = length(agents);
@@ -163,56 +162,8 @@ classdef AgentSolver < handle
                 P.primal.lbz = lbz{q};
                 P.primal.ubz = ubz{q};
                 args = [solver_args, AgentSolver.ws_args(ws{q})];
-                [z{q}, V(q), info{q}] = AgentSolver.solve_one(P, args, lp_first);
+                [z{q}, V(q), info{q}] = P.solve(args{:});
             end
-        end
-
-        function [z, V, info] = solve_one(P, args, lp_first)
-            % Solves the MILP problem of the MIQPholder @P with the name/value options @args (see
-            % MIQPholder.solve). If @lp_first is true, its LP relaxation is solved first with the simplex
-            % method: if the solution is integer, it is optimal and the MILP solver is not called.
-            % Otherwise, the MILP problem is solved, and the time of the LP is added to info.run_time.
-            t_lp = 0;
-            if lp_first
-                largs = AgentSolver.lp_args(args);
-                [z_lp, ~, info_lp] = P.solve(largs{:}, 'relax', true);
-                t_lp = info_lp.run_time;
-                if info_lp.feasible
-                    idx = P.primal.idx_int;
-                    z_r = z_lp;
-                    z_r(idx) = round(z_lp(idx));
-                    if max([0; abs(z_lp(idx) - z_r(idx))]) <= 1e-6 && P.is_feasible(z_r, true)
-                        z = z_r;
-                        V = P.primal.c'*z;
-                        info = info_lp;
-                        info.e_flag = 1;
-                        info.obj_bound = V;
-                        info.lp_integral = true;
-                        return
-                    end
-                end
-            end
-            [z, V, info] = P.solve(args{:});
-            info.run_time = info.run_time + t_lp;
-            info.lp_integral = false;
-        end
-
-        function args = lp_args(args)
-            % Name/value options of MIQPholder.solve for the LP relaxation of solve_one: no warm start, and
-            % the dual simplex method for MOSEK (unless MSK_IPAR_OPTIMIZER is given)
-            keep = true(1, length(args));
-            mosek_param = struct();
-            for q = 1:2:(length(args) - 1)
-                name = lower(char(string(args{q})));
-                if strcmp(name, 'warmstart') || strcmp(name, 'mosek_param')
-                    keep([q, q+1]) = false;
-                    if strcmp(name, 'mosek_param'); mosek_param = args{q+1}; end
-                end
-            end
-            if ~isfield(mosek_param, 'MSK_IPAR_OPTIMIZER')
-                mosek_param.MSK_IPAR_OPTIMIZER = 'MSK_OPTIMIZER_DUAL_SIMPLEX';
-            end
-            args = [args(keep), {'mosek_param', mosek_param}];
         end
 
         function args = ws_args(ws)

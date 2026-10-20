@@ -1,10 +1,10 @@
-%% analyze_GA_batch() - Compares the GA with PReDuaL and the central MILP on the scenarios of a grid (Table II)
+%% analyze_GA_batch() - Compares the GA with PReDuaL and the central MILP on the scenarios of a grid (Table I)
 %
 % Reads the results of run_GA_batch (results/ga_<name>.mat) and of run_grid_batch (results/<name>.mat) for the
 % same scenarios, and prints, for each scenario and on average, the cost errors with respect to the optimal
 % cost of the central MILP (9) and the computation times of:
 %   - the central MILP (9)
-%   - PReDuaL (time of Section VII-B, and measured wall-clock time)
+%   - PReDuaL (time of Section VII-A, and measured wall-clock time)
 %   - Algorithm 1 alone (before the primal recovery)
 %   - the GA (wall-clock time, single thread)
 %
@@ -47,17 +47,19 @@ function stats = analyze_GA_batch(get_n, opt)
     files = dir(fullfile(folder, pattern));
     names = {};
     % Columns: tasks, V_c, time_c, solved_c, V_d, time_d, wall_d, V_alg1, time_alg1, V_ga, time_ga, V_ga_mean, feasible_ga,
-    %          GA runs (within the time budget), V of the GA with its own stopping rule (only with a time budget)
-    T = zeros(0, 15);
+    %          GA runs (within the time budget), V of the GA with its own stopping rule (only with a time budget),
+    %          time at which the GA found its best solution
+    T = zeros(0, 16);
     for f = 1:length(files)
         data = load(fullfile(folder, files(f).name));
         if ~isfield(data, 'res_ga'); continue; end
         g = data.res_ga;
         if ~isnan(get_n) && g.n ~= get_n; continue; end
-        row = nan(1, 15);
+        row = nan(1, 16);
         row(1) = g.num_tasks;
         row([10, 11, 12, 13]) = [g.V, g.time, g.V_mean, double(g.feasible)];
         row(14) = get_field(g, 'ga_runs');
+        row(16) = get_field(g, 'time_best');
         default_file = fullfile(folder, ['ga_', g.name, '.mat']);
         if ~strcmp(budget, 'none') && isfile(default_file)
             d = load(default_file);
@@ -114,6 +116,7 @@ function stats = analyze_GA_batch(get_n, opt)
     stats.wall_d = stat4(T(~isnan(T(:, 7)), 7));
     stats.time_alg1 = stat4(T(~isnan(T(:, 9)), 9));
     stats.time_ga = stat4(T(:, 11));
+    stats.time_best_ga = stat4(T(~isnan(T(:, 16)), 16));
     stats.err_d = stat4(err_d(solved_c & isfinite(err_d)));
     stats.err_alg1 = stat4(err_alg1(solved_c & isfinite(err_alg1)));
     stats.err_ga = stat4(err_ga(solved_c & isfinite(err_ga)));
@@ -133,12 +136,15 @@ function stats = analyze_GA_batch(get_n, opt)
     fprintf("\n> Scenarios: %d (central MILP solved in %d; the cost errors are computed for these)\n", stats.num_tests, stats.num_central);
     fprintf("                                        %10s %10s %10s %10s\n", "Avrg.", "Med.", "Max.", "Min.");
     fprintf("> Comp. time central MILP (9) [s]       %10.3f %10.3f %10.3f %10.3f\n", stats.time_c);
-    fprintf("> Comp. time PReDuaL [s]                %10.3f %10.3f %10.3f %10.3f   (Section VII-B)\n", stats.time_d);
+    fprintf("> Comp. time PReDuaL [s]                %10.3f %10.3f %10.3f %10.3f   (Section VII-A)\n", stats.time_d);
     if ~all(isnan(stats.wall_d))
         fprintf("> Wall-clock PReDuaL [s]                %10.3f %10.3f %10.3f %10.3f\n", stats.wall_d);
     end
     fprintf("> Comp. time Alg. 1 [s]                 %10.3f %10.3f %10.3f %10.3f   (without recovery)\n", stats.time_alg1);
     fprintf("> Comp. time GA [s]                     %10.3f %10.3f %10.3f %10.3f\n", stats.time_ga);
+    if ~all(isnan(stats.time_best_ga))
+        fprintf("> Time to best solution GA [s]          %10.3f %10.3f %10.3f %10.3f\n", stats.time_best_ga);
+    end
     if ~strcmp(budget, 'none') && ~all(isnan(stats.ga_runs))
         fprintf("> Runs of the GA within the time        %10.1f %10.1f %10d %10d\n", stats.ga_runs);
     end

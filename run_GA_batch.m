@@ -1,4 +1,4 @@
-%% run_GA_batch() - Solves the random scenarios of run_grid_batch with the GA (Section VII-D)
+%% run_GA_batch() - Solves the random scenarios of run_grid_batch with the GA (Section VII-C)
 %
 % Generates the same scenarios as run_grid_batch(n_rows, n_cols), solves them with the GA (ga_MRTA),
 % and saves the results in results/ga_<save_name>_gs_<n>_ss_<state seed>.mat (structure res_ga).
@@ -21,7 +21,7 @@
 %         run is reported (res_ga.V, res_ga.time), as well as the averages over the runs (V_mean, time_mean)
 % 'ga': Structure with name/value options for ga_MRTA, e.g., struct('pop', 200, 'stop', 200, 'seed', 1)
 % 'time_budget': "none" (default): the GA stops with its own rule (200 generations without improvement).
-%                "paper": computation time of PReDuaL of Section VII-B (res.time_d_par_total).
+%                "paper": computation time of PReDuaL of Section VII-A (res.time_d_par_total).
 %                "wall": measured wall-clock time of PReDuaL (res.time_d_wall).
 % 'skip_done': Skip the scenarios whose GA results already exist in results/ (default false). Used to
 %              resume an interrupted batch
@@ -117,6 +117,7 @@ function results = run_GA_batch(n_rows, n_cols, opt)
         % Runs of the GA
         V_runs = inf(1, opt.runs);
         time_runs = nan(1, opt.runs);
+        time_best_runs = nan(1, opt.runs);
         gens_runs = nan(1, opt.runs);
         seeds = zeros(1, opt.runs);
         best = [];
@@ -129,6 +130,7 @@ function results = run_GA_batch(n_rows, n_cols, opt)
             [~, V, info] = ga_MRTA(prob, a_loc, t_loc, ga_args{:});
             V_runs(r) = V;
             time_runs(r) = info.time;
+            time_best_runs(r) = info.time_best;
             gens_runs(r) = info.generations;
             if isempty(best) || V < best.V
                 best = struct('V', V, 'info', info);
@@ -148,6 +150,7 @@ function results = run_GA_batch(n_rows, n_cols, opt)
         res_ga.e_flag = best.info.e_flag; % 1: feasible solution of (9); -1: no feasible solution
         res_ga.feasible = best.info.feasible;
         res_ga.time = best.info.time; % Computation time of the GA [s] (best run)
+        res_ga.time_best = best.info.time_best; % Time at which the GA found its best solution [s] (best run)
         res_ga.wall_time = best.info.wall_time; % Wall-clock time of the call to the GA executable [s] (best run)
         res_ga.generations = best.info.generations;
         res_ga.ga_runs = best.info.runs; % Runs of the GA within the time budget (1 without time budget)
@@ -159,6 +162,7 @@ function results = run_GA_batch(n_rows, n_cols, opt)
         res_ga.seeds = seeds;
         res_ga.V_runs = V_runs;
         res_ga.time_runs = time_runs;
+        res_ga.time_best_runs = time_best_runs;
         res_ga.generations_runs = gens_runs;
         res_ga.routes = best.info.routes; % Route (locations) and tasks of each robot (best run)
         res_ga.tasks = best.info.tasks;
@@ -167,7 +171,8 @@ function results = run_GA_batch(n_rows, n_cols, opt)
         res_ga.ga_opt = rmfield(ga_opt_s, {'seed', 'name'});
 
         % Print the results (and the comparison with the results of run_grid_batch)
-        line = sprintf('  > GA: cost %.6g, time %.3f s, %d generations', res_ga.V, res_ga.time, res_ga.generations);
+        line = sprintf('  > GA: cost %.6g, time %.3f s (best solution at %.3f s), %d generations', res_ga.V, res_ga.time, ...
+            res_ga.time_best, res_ga.generations);
         if ~strcmp(budget, 'none')
             line = [line, sprintf(' in %d runs (time budget %.3f s, %s)', res_ga.ga_runs, T_budget, budget)];
         end

@@ -20,7 +20,8 @@ function stats = analyze_rand_batch(get_n, folder)
     mat = dir(fullfile(folder, '*.mat'));
     data = struct('nz', {}, 'grid', {}, 'time_c', {}, 'e_flag_c', {}, 'time_d', {}, 'e_flag_d', {}, 'k_d', {}, 'err_V', {}, ...
                   'time_alg1', {}, 'e_flag_alg1', {}, 'err_V_alg1', {}, 'gap', {}, 'wall_d', {}, 'wall_alg1', {}, 'parallel', {}, ...
-                  'rec', {}, 'rec_sel', {}, 'rec_agents', {}, 'rec_ovh', {}, 'V_c', {}, 'LB_c', {}, 'gap_c', {}, 'V_d', {}, 'LB_d', {});
+                  'rec', {}, 'rec_sel', {}, 'rec_agents', {}, 'rec_ovh', {}, 'V_c', {}, 'LB_c', {}, 'gap_c', {}, 'V_d', {}, 'LB_d', {}, ...
+                  'best_c', {}, 'best_d', {});
     for i = 1:length(mat)
         test = load(fullfile(mat(i).folder, mat(i).name));
         if ~isfield(test, 'test_info') || ~isfield(test, 'res') || ~isfield(test.test_info, 'n_rows')
@@ -53,6 +54,8 @@ function stats = analyze_rand_batch(get_n, folder)
         d.gap_c = get_field(test.res, 'gap_c');
         d.V_d = get_field(test.res, 'V_d');
         d.LB_d = get_field(test.res, 'LB_d');
+        d.best_c = get_field(test.res, 'time_best_c'); % Time at which the best solution was found (NaN if not recorded)
+        d.best_d = get_field(test.res, 'time_best_d');
         data(end+1) = d; %#ok<AGROW>
     end
 
@@ -81,10 +84,14 @@ function stats = analyze_rand_batch(get_n, folder)
     stats.grid = unique({data.grid});
     stats.nz = round(mean([data.nz]));
     stats.time_c = stat4(time_c(solved_c)); % Comp. time (10) [s]
-    stats.time_d = stat4(time_d(solved_d)); % Comp. time PReDuaL [s] (Section VII-B)
+    stats.time_d = stat4(time_d(solved_d)); % Comp. time PReDuaL [s] (Section VII-A)
     stats.wall_d = stat4(wall_d(solved_d & ~isnan(wall_d))); % Measured wall-clock time PReDuaL [s]
     stats.wall_alg1 = stat4(wall_alg1(solved_d & ~isnan(wall_alg1))); % Measured wall-clock time Alg. 1 [s]
     stats.parallel = nnz([data.parallel] == 1); % Number of tests solved with parallel MILP solves
+    best_c = [data.best_c];
+    best_d = [data.best_d];
+    stats.time_best_c = stat4(best_c(solved_c & ~isnan(best_c))); % Time to the best solution (10) [s]
+    stats.time_best_d = stat4(best_d(solved_d & ~isnan(best_d))); % Time to the best solution PReDuaL [s]
     stats.k_d = stat4(k_d(solved_d)); % Iterations Alg. 1
     stats.err_V = stat4(err_V(~isnan(err_V))); % Cost error (%)
     stats.solved_c = nnz(solved_c); % Number of central MILPs (10) solved
@@ -92,7 +99,7 @@ function stats = analyze_rand_batch(get_n, folder)
     stats.over_d = nnz(e_flag_d == 2 | e_flag_d == 0); % Number of over-feasible solutions of Alg. 1
     stats.infeas_d = nnz(e_flag_d == -1); % Number of tests where Alg. 1 did not find an (over-)feasible solution
     stats.gap = stat4(gap(~isnan(gap))); % Optimality gap (%) from the column generation
-    stats.certified = nnz(gap <= 0.1); % Number of solutions certified to be within 0.1% of the optimal cost
+    stats.certified = nnz(gap <= 0.01); % Number of solutions certified to be optimal (gap within 0.01%, as #cert. in Table I)
     % Results of Algorithm 1 alone (before the primal recovery)
     stats.time_alg1 = stat4(time_alg1(solved_d & ~isnan(time_alg1)));
     stats.err_V_alg1 = stat4(err_V_alg1(~isnan(err_V_alg1)));
@@ -120,6 +127,10 @@ function stats = analyze_rand_batch(get_n, folder)
     fprintf("                                   %10s %10s %10s %10s\n", "Avrg.", "Med.", "Max.", "Min.");
     fprintf("> Comp. time (10) [s]              %10.2f %10.2f %10.2f %10.2f\n", stats.time_c);
     fprintf("> Comp. time PReDuaL [s]           %10.2f %10.2f %10.2f %10.2f\n", stats.time_d);
+    if ~all(isnan([stats.time_best_c, stats.time_best_d]))
+        fprintf("> Time to best sol. (10) [s]       %10.2f %10.2f %10.2f %10.2f\n", stats.time_best_c);
+        fprintf("> Time to best sol. PReDuaL [s]    %10.2f %10.2f %10.2f %10.2f\n", stats.time_best_d);
+    end
     if ~all(isnan(stats.wall_d))
         fprintf("> Wall-clock PReDuaL [s]           %10.2f %10.2f %10.2f %10.2f   (parallel in %d of %d tests)\n", ...
             stats.wall_d, stats.parallel, num_tests);
@@ -136,7 +147,7 @@ function stats = analyze_rand_batch(get_n, folder)
     fprintf("> Iterations Alg. 1                %10.1f %10.1f %10d %10d\n", stats.k_d);
     fprintf("> Cost error (%%)                   %10.2f %10.2f %10.2f %10.2f\n", stats.err_V);
     if ~all(isnan(stats.gap))
-        fprintf("> Optimality gap (%%)               %10.2f %10.2f %10.2f %10.2f   (within 0.1%%: %d)\n", stats.gap, stats.certified);
+        fprintf("> Optimality gap (%%)               %10.2f %10.2f %10.2f %10.2f   (within 0.01%%: %d)\n", stats.gap, stats.certified);
     end
     fprintf("> Sol. (10) #solved: %d\n", stats.solved_c);
     if stats.unsolved_c > 0

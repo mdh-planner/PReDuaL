@@ -327,7 +327,7 @@ classdef Agent < handle
 
         function [lbz, ubz] = prize_bounds(self, c, lbz, ubz)
             % Returns the bounds @lbz, @ubz with some variables fixed to 0 without changing the optimal value
-            % of the MILP problem of the agent with costs @c (Section VII-A): the tasks with cost c >= 0, and
+            % of the MILP problem of the agent with costs @c (Section VII): the tasks with cost c >= 0, and
             % the stops at locations other than self.loc without any task of cost c < 0 (stopping there is
             % more expensive than stopping one edge earlier, since w_{i,j} > 0 and all the stopping costs
             % are equal). @lbz and @ubz are returned unchanged if some edge weight is not positive.
@@ -473,7 +473,7 @@ classdef Agent < handle
 
         function z = warm_start_z(self, z_prev, c)
             % Returns a feasible solution of the MILP problem of the agent with costs @c (and the bounds of
-            % prize_bounds) built from its solution @z_prev at the previous iteration (Section VII-A): the
+            % prize_bounds) built from its solution @z_prev at the previous iteration (Section VII): the
             % route of @z_prev up to its last location with a task of negative cost, performing the tasks
             % of negative cost along it. Used to warm-start the solver.
             route = self.get_path(z_prev);

@@ -12,16 +12,15 @@ opt_gen = struct('Evt_sparse', 0.65, 'Eat_sparse', 0.7, 'max_tv', 4, 'min_tv', 1
 [t_loc, a_loc] = gen_rand_state(Evt, names, opt_gen, 155);
 
 prob = MRTA(Gv, Evt, Eat, names, 'param', param);
-prob.normalize_costs(); % Cost normalization (Section VII-A)
+prob.normalize_costs(); % Cost normalization (Section VII)
 fprintf("Using MILP solver: %s\n", MIQPholder.default_solver());
 
 %% PReDuaL: Algorithm 1 followed by the primal recovery
 recovery = true;        % false: Algorithm 1 alone
-light_recovery = true;  % true: route selection + route search + re-routing; false: also local search
 route_search = true;    % Route search in the primal recovery
 use_parallel = false;   % true: the MILP problems of the robots are solved in parallel (Parallel Computing Toolbox)
 [z_d, V_d, info_d] = heur_distLag_MRTA(prob, a_loc, t_loc, verbose=true, recovery=recovery, ...
-    light_recovery=light_recovery, route_search=route_search, parallel=use_parallel);
+    route_search=route_search, parallel=use_parallel);
 fprintf("\nAlgorithm 1: exit flag %d, %d iterations, cost %.4f, time %.3f s\n", ...
     info_d.e_flag_alg1, info_d.k, info_d.V_alg1, info_d.run_time_par_total_alg1);
 fprintf("PReDuaL: exit flag %d, cost %.4f, time %.3f s\n", ...

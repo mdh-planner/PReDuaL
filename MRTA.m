@@ -344,7 +344,7 @@ classdef MRTA < handle
         end
 
         function c_max = normalize_costs(self)
-            % Cost normalization of Section VII-A of the article.
+            % Cost normalization of Section VII of the article.
             % Divides all costs w_{i,j} (edge weights) and rho_{t_k} (task costs) by their maximum value c_max,
             % so that they lie in (0, 1]. The costs w_{i,i} (param.cost_stop) and epsilon_tau (param.cost_times)
             % are not modified. Calling this method more than once has no further effect.
@@ -695,9 +695,9 @@ classdef MRTA < handle
 
         function param = default_param()
             % Returns the default parameters of the MRTA optimization problem
-            param.cost_stop = 1e-2; % Cost w_{i,i} assigned to stopping at any location (Section VII-A)
+            param.cost_stop = 1e-2; % Cost w_{i,i} assigned to stopping at any location (Section VII)
             param.cost_task = []; % Array with the cost (time) rho_{t_k} of each task-type
-            param.cost_times = 1e-5; % Cost epsilon_tau assigned to the time variables tau (Section VII-A)
+            param.cost_times = 1e-5; % Cost epsilon_tau assigned to the time variables tau (Section VII)
         end
 
     end % End of Static methods

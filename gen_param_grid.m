@@ -1,4 +1,4 @@
-%% gen_param_grid - Returns the parameters of the random problems of Section VII-B
+%% gen_param_grid - Returns the parameters of the random problems of Section VII-A
 %
 % INPUTS:
 %   @n_rows: int, number of rows of the grid

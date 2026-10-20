@@ -6,7 +6,7 @@
 %   E = w_{i,i} + sum of the weights w_{i,j} of its edges + epsilon_tau*(sum of its accumulated travel times).
 %
 % neighbors(), segment_removals(), tail_transfers() and segment_transfers() generate the routes (a)-(d)
-% of Section VI-B from a given route. The locations are connected by shortest paths that do not visit
+% of Section VI-C from a given route. The locations are connected by shortest paths that do not visit
 % the rest of the route, so the new routes are also simple paths. The shortest paths are computed once
 % with Floyd-Warshall, and Dijkstra is only used when a shortest path visits a location to be avoided.
 %

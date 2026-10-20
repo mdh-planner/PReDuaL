@@ -1,4 +1,4 @@
-%% ga_MRTA() - Solves an MRTA problem with the genetic algorithm of Section VII-D
+%% ga_MRTA() - Solves an MRTA problem with the genetic algorithm of Section VII-C
 %
 % [z, V, info] = ga_MRTA(prob, a_loc, t_loc, Name=Value)
 %
@@ -37,6 +37,7 @@
 %   .feasible: true if z is a feasible solution of (9)
 %   .time: Computation time of the GA [s] (wall-clock time measured by the executable: initial population
 %          and generations, without reading/writing files)
+%   .time_best: Time [s] at which the GA found its best solution (same clock as .time)
 %   .wall_time: Wall-clock time of the call to the executable [s] (including starting it and the files)
 %   .generations: Number of generations of the GA (sum over its runs)
 %   .runs: Number of runs of the GA (more than 1 only with 'restarts')
@@ -114,6 +115,7 @@ function [z, V, info] = ga_MRTA(prob, a_loc, t_loc, opt)
     info.e_flag = 1;
     if ~ev.feasible; info.e_flag = -1; end
     info.time = sol.time;
+    info.time_best = sol.time_best;
     info.generations = sol.generations;
     info.runs = sol.runs;
     info.cost_ga = sol.cost;

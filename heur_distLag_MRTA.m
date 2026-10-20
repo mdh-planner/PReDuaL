@@ -7,7 +7,7 @@
 %
 % The coupling constraints (3) of the central MILP (9) are dualized, so that each agent solves its own
 % MILP problem (13). Each agent s_i has its own dual variables lambda_i, which are updated with (16)
-% using the residual returned by Algorithm 2. The preconditioning of Section VII-A is applied (cost
+% using the residual returned by Algorithm 2. The preconditioning of Section VII is applied (cost
 % normalization, sign inversion of the task costs and scaling of (10b) by 1/m).
 % Set 'recovery' to false to run Algorithm 1 alone.
 %
@@ -16,7 +16,7 @@
 %   @a_loc: Cell array with the location of each agent
 %   @t_loc: Cell array of cell arrays with the locations of the pending tasks of each task-type
 %
-% NAME/VALUE INPUTS (the defaults of the hyperparameters are the values of Section VII-B):
+% NAME/VALUE INPUTS (the defaults of the hyperparameters are the values of Section VII-A):
 %   alpha: Step-size of Algorithm 1 (default 2*m*sum_k rho_{t_k})
 %   alpha_rho: Multiplier (< 0) of the task costs in the inner MILPs (default -sum_{i,j} w_{i,j}/(2*sqrt(n)))
 %   k_alpha: Number of iterations with constant step-size alpha (default 2)
@@ -26,38 +26,38 @@
 %   mu_up, mu_low: mu-bar and mu-underline of Algorithm 2 (default 1/m, 1)
 %   gamma_up, gamma_low: gamma-bar and gamma-underline of Algorithm 2 (default 1, 1/m)
 %   tol: Tolerance used to determine the sign of the elements of the residual (default 1e-6)
-%   normalize: Apply the cost normalization of Section VII-A (default true)
+%   normalize: Apply the cost normalization of Section VII (default true)
 %   recovery: Apply the primal recovery after Algorithm 1 (default true)
-%   light_recovery: Only route selection, route search and re-routing (default true). If false, the
-%                   local search (and the column generation, if enabled) are also applied
 %   route_search: Apply the route search of the primal recovery (default true)
 %   route_dp: In the primal recovery, try to compute the route of an agent for a set of tasks with
 %             Held-Karp before solving its MILP problem (see RouteEvaluator.route_dp, default true)
-%   recovery_rounds: Maximum number of rounds N_rec of the primal recovery (default 3). The light
-%                    recovery without route search uses a single round
-%   local_search: Apply the local search of the primal recovery (default true)
-%   ls_max_pass: Maximum number of passes of the local search and pairwise re-optimization (default 10)
-%   pair_reopt: Apply the pairwise re-optimization in the primal recovery (default false)
-%   column_generation: Apply column generation after the primal recovery, which also gives a lower
-%                      bound of the optimal cost of (9) (default true)
-%   cg_max_iter: Maximum number of column generation rounds (default 20)
-%   cg_smoothing: Dual smoothing parameter of the column generation, in [0, 1) (default 0.5)
-%   cg_tol: Relative tolerance used to stop the column generation (default 1e-4)
+%   recovery_rounds: Maximum number of rounds N_rec of the primal recovery (default 1). Without route
+%                    search, a single round is used
+%   column_generation: Start the primal recovery with column generation on the routes of Algorithm 1
+%                      (default true), which also gives a lower bound of the optimal cost of (9) (info.LB).
+%                      If the first route selection is within 1e-4 of the lower bound, the rest of the
+%                      recovery is skipped
+%   cg_stall: Stop the column generation if the value of the LP relaxation (19) did not decrease in the
+%             last cg_stall rounds (k_cg). 0 to disable (default 3)
+%   cg_max_time: Time limit [s] of the pricing MILP problems (20) of the column generation (default 2; NaN:
+%                the time limit 'inner_max_time' of Algorithm 1). If it is reached, the best route found is
+%                used and the lower bound uses the bound of the solver. When the column generation would
+%                stop, it continues with the time limit 'inner_max_time' until it stops again
+%   cg_max_iter: Maximum number of column generation rounds N_cg (default 20)
+%   cg_smoothing: Dual smoothing parameter zeta of the column generation, in [0, 1) (default 0.5)
+%   cg_tol: Relative tolerance epsilon_cg used to stop the column generation (default 1e-4)
 %   tight: Add the constraints (7) to the MILP problems of the agents (default true). They do not change
-%          the optimal routes, but make the LP relaxation much tighter (see Agent.gen_valid_ineq_constraints).
-%          Use false for the formulation of the original submission
+%          the optimal routes, but make the LP relaxation much tighter (see Agent.gen_valid_ineq_constraints)
 %   prize_bounds: At each iteration, fix to 0 the task variables with nonnegative cost and the stops at
-%                 locations without tasks of negative cost (Section VII-A, default true)
+%                 locations without tasks of negative cost (Section VII, default true)
 %   warm_start: Warm-start the solver of each agent with its solution of the previous iteration (default true)
 %   pool_stall: With the primal recovery, Algorithm 1 stops if no agent computed a new route in the last
 %               pool_stall iterations (k_s in Section V). 0 to disable (default 3)
-%   lp_first: Solve the LP relaxation of the MILP problems of the agents first, and only call the MILP
-%             solver if its solution is not integer (default false)
 %   solver: Structure with name/value options for MIQPholder.solve (e.g., struct('solver', "intlinprog"))
-%   inner_max_time: Time limit [s] of the MILP problems (13) of the agents in Algorithm 1 (default inf).
-%                   If it is reached, the best solution found by the solver is used (or the warm start,
-%                   or staying at the initial location, if the solver found none). The primal recovery
-%                   does not use this limit
+%   inner_max_time: Time limit [s] of the MILP problems (13) of the agents in Algorithm 1 (default 10; inf:
+%                   none). If it is reached, the best solution found by the solver is used (or the warm
+%                   start, or staying at the initial location, if the solver found none). The re-routing
+%                   problems of the primal recovery do not use this limit
 %   parallel: Solve the MILP problems of the agents in parallel with parfor (default false). Requires the
 %             Parallel Computing Toolbox
 %   verbose: Print information at each iteration (default false)
@@ -81,7 +81,7 @@
 %       .num_inner_tl, .num_inner_nosol: Number of MILP problems stopped by 'inner_max_time' with and
 %                                        without a solution
 %       .stop_pool_stall: true if Algorithm 1 was stopped by 'pool_stall'
-%       .run_time_par_total: Computation time of Section VII-B, assuming that the MILP problems of the
+%       .run_time_par_total: Computation time of Section VII-A, assuming that the MILP problems of the
 %                            agents are solved in parallel: overhead + sum_k max_i (time inner MILP i).
 %                            Includes the primal recovery (computed in the same way)
 %       .run_time_par_total_alg1: Computation time of Algorithm 1
@@ -92,6 +92,11 @@
 %       .run_time_wall_total: Measured wall-clock time of Algorithm 1 plus the primal recovery
 %       .parallel: true if the MILP problems were solved in parallel
 %       .run_time_inner: m x k matrix with the solver time of each inner MILP
+%       .time_best, .time_best_wall: Computation time (as .run_time_par_total) and wall-clock time at which
+%                                    @z_out was found (NaN if no solution)
+%       .time_best_alg1, .time_best_alg1_wall: The same for the solution of Algorithm 1
+%       .best_hist: [time, wall-clock time, cost] of each new best feasible solution of (9) (Algorithm 1, then
+%                   primal recovery)
 %       .lambda: Dual variables (column i is lambda_i) of @z_out
 %       .r: Residual (15) of @z_out
 %       .hist: Residual (.r) and cost (.V) at each iteration
@@ -117,24 +122,21 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
         opt.tol (1, 1) double {mustBePositive} = 1e-6
         opt.normalize (1, 1) {mustBeNumericOrLogical} = true
         opt.recovery (1, 1) {mustBeNumericOrLogical} = true
-        opt.light_recovery (1, 1) {mustBeNumericOrLogical} = true
         opt.route_search (1, 1) {mustBeNumericOrLogical} = true
         opt.route_dp (1, 1) {mustBeNumericOrLogical} = true
-        opt.recovery_rounds (1, 1) double {mustBeInteger, mustBePositive} = 3
-        opt.local_search (1, 1) {mustBeNumericOrLogical} = true
-        opt.ls_max_pass (1, 1) double {mustBeInteger, mustBePositive} = 10
-        opt.pair_reopt (1, 1) {mustBeNumericOrLogical} = false
+        opt.recovery_rounds (1, 1) double {mustBeInteger, mustBePositive} = 1
         opt.column_generation (1, 1) {mustBeNumericOrLogical} = true
         opt.cg_max_iter (1, 1) double {mustBeInteger, mustBeNonnegative} = 20
         opt.cg_smoothing (1, 1) double {mustBeNonnegative} = 0.5
         opt.cg_tol (1, 1) double {mustBePositive} = 1e-4
+        opt.cg_stall (1, 1) double {mustBeInteger, mustBeNonnegative} = 3
+        opt.cg_max_time (1, 1) double = 2
         opt.tight (1, 1) {mustBeNumericOrLogical} = true
         opt.prize_bounds (1, 1) {mustBeNumericOrLogical} = true
         opt.warm_start (1, 1) {mustBeNumericOrLogical} = true
-        opt.lp_first (1, 1) {mustBeNumericOrLogical} = false
         opt.pool_stall (1, 1) double {mustBeInteger, mustBeNonnegative} = 3
         opt.solver struct = struct()
-        opt.inner_max_time (1, 1) double {mustBePositive} = inf
+        opt.inner_max_time (1, 1) double {mustBePositive} = 10
         opt.parallel (1, 1) {mustBeNumericOrLogical} = false
         opt.verbose (1, 1) {mustBeNumericOrLogical} = false
     end
@@ -144,7 +146,7 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
 
     %% Step 1: Construct the ingredients of problem (10)
 
-    % Cost normalization (Section VII-A)
+    % Cost normalization (Section VII)
     info.c_max = 1;
     if opt.normalize
         info.c_max = mrta.normalize_costs();
@@ -159,7 +161,7 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
     b = b/m;
     m_z = size(A, 1); % Number of coupling constraints (pending tasks)
 
-    % Default values of the hyperparameters (Section VII-B)
+    % Default values of the hyperparameters (Section VII-A)
     if isnan(opt.alpha); opt.alpha = 2*m*sum(mrta.param.cost_task); end
     if isnan(opt.alpha_rho); opt.alpha_rho = -sum(mrta.Gv.Edges.Weight)/(2*sqrt(mrta.n)); end
     if isnan(opt.mu_up); opt.mu_up = 1/m; end
@@ -197,7 +199,6 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
 
     % Solver of the MILP problems of the agents (sequential or parallel)
     agent_solver = AgentSolver(mrta, alg1_args, opt.parallel);
-    agent_solver.lp_first = opt.lp_first;
     info.parallel = agent_solver.parallel;
     info.run_time_build = toc(start_build);
 
@@ -209,9 +210,11 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
     z_a = cell(1, m);
     t_inner = zeros(m, opt.k_max); % Solver time of each inner MILP
     t_batch = zeros(1, opt.k_max); % Wall time of Steps 4-6 at each iteration
+    t_iter = zeros(1, opt.k_max); % Wall time from the start of the loop to the solution of each iteration
     info.hist.r = zeros(m_z, opt.k_max);
     info.hist.V = zeros(1, opt.k_max);
     z_best = [];
+    k_best = -1; % Iteration of z_best
     V_best = inf;
     done = false;
     pool = cell(1, m); % Routes computed by each agent (route pool of the primal recovery)
@@ -330,7 +333,9 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
             V_best = V_k;
             lambda_best = lambda_k;
             r_best = r;
+            k_best = k;
         end
+        t_iter(k+1) = toc(start_loop);
 
         if opt.verbose
             fprintf("k = %3d | J = %10.4f | tasks done once: %d, more than once: %d, not done: %d\n", ...
@@ -377,12 +382,14 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
     end
 
     % Stopped without a feasible solution: return the best over-feasible one (if any)
+    k_sol = k; % Iteration of the returned solution
     if ~done
         if ~isempty(z_best)
             info.e_flag = 0;
             z_k = z_best;
             lambda_k = lambda_best;
             r = r_best;
+            k_sol = k_best;
         else
             info.e_flag = -1;
         end
@@ -404,7 +411,7 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
     info.hyper = rmfield(opt, {'solver', 'verbose'});
     info.solver = opt.solver;
 
-    % Computation times (Section VII-B)
+    % Computation times (Section VII-A)
     info.run_time_inner = t_inner(:, 1:num_iters);
     info.run_time_par = sum(max(info.run_time_inner, [], 1));
     info.run_time_overhead = max(info.run_time_all - sum(t_batch(1:num_iters)), 0);
@@ -413,32 +420,44 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
     info.run_time_par_total_alg1 = info.run_time_par_total;
     info.e_flag_alg1 = info.e_flag;
     info.V_alg1 = V_out;
+
+    % Time at which the solution of Algorithm 1 was found (computed as info.run_time_par_total)
+    info.time_best_alg1 = NaN;
+    info.time_best_alg1_wall = NaN;
+    if info.e_flag >= 0
+        info.time_best_alg1 = sum(max(t_inner(:, 1:k_sol+1), [], 1)) + max(t_iter(k_sol+1) - sum(t_batch(1:k_sol+1)), 0);
+        info.time_best_alg1_wall = t_iter(k_sol+1);
+    end
+    info.best_hist = zeros(0, 3);
+    if info.e_flag == 1
+        info.best_hist(1, :) = [info.time_best_alg1, info.time_best_alg1_wall, V_out];
+    end
     info.LB = -inf;
     info.gap = NaN;
 
     %% Primal recovery (Section VI)
     info.run_time_wall_total = info.run_time_all;
     if opt.recovery && m_z > 0
-        if opt.light_recovery
-            rec_opt.rounds = 1;
-            if opt.route_search
-                rec_opt.rounds = opt.recovery_rounds;
-            end
-            rec_opt.local_search = false;
-            rec_opt.pair_reopt = false;
-            rec_opt.column_generation = false;
-        else
+        rec_opt.rounds = 1;
+        if opt.route_search
             rec_opt.rounds = opt.recovery_rounds;
-            rec_opt.local_search = opt.local_search;
-            rec_opt.pair_reopt = opt.pair_reopt;
-            rec_opt.column_generation = opt.column_generation;
         end
         rec_opt.route_search = opt.route_search;
         rec_opt.route_dp = opt.route_dp;
-        rec_opt.ls_max_pass = opt.ls_max_pass;
+        rec_opt.column_generation = opt.column_generation;
         rec_opt.cg_max_iter = opt.cg_max_iter;
         rec_opt.cg_smoothing = opt.cg_smoothing;
         rec_opt.cg_tol = opt.cg_tol;
+        rec_opt.cg_stall = opt.cg_stall;
+        % Solver options of the pricing problems: time limit of Algorithm 1 unless cg_max_time is given
+        cg_solver = alg1_solver;
+        if ~isnan(opt.cg_max_time)
+            cg_solver.max_time = opt.cg_max_time;
+        end
+        rec_opt.cg_solver_args = namedargs2cell(cg_solver);
+        if ~isnan(opt.cg_max_time)
+            rec_opt.cg_solver_args_final = alg1_args; % Last rounds with the time limit of Algorithm 1
+        end
         rec_opt.solver_args = solver_args;
         agent_solver.solver_args = solver_args; % No 'inner_max_time' in the primal recovery
         rec_opt.agent_solver = agent_solver;
@@ -454,6 +473,13 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
         if isfinite(info.LB)
             info.gap = (V_out - info.LB)/max(abs(info.LB), 1e-12);
         end
+        % New best solutions of the recovery (times from the start of Algorithm 1)
+        for q = 1:size(info.recovery.best_hist, 1)
+            row = info.recovery.best_hist(q, :) + [info.run_time_par_total_alg1, info.run_time_all, 0];
+            if isempty(info.best_hist) || row(3) < info.best_hist(end, 3) - 1e-9
+                info.best_hist(end+1, :) = row;
+            end
+        end
         info.run_time_par_total = info.run_time_par_total + info.recovery.run_time_par_total;
         info.run_time_wall_total = info.run_time_wall_total + info.recovery.run_time_all;
         info.run_time_seq = info.run_time_seq + info.recovery.run_time_seq;
@@ -464,6 +490,18 @@ function [z_out, V_out, info] = heur_distLag_MRTA(mrta, a_loc, t_loc, opt)
                 fprintf("Lower bound: %.4f, certified optimality gap: %.2f%% (%d column generation rounds)\n", ...
                     info.LB, 100*info.gap, info.recovery.cg.iters);
             end
+        end
+    end
+
+    % Time at which @z_out was found: first new best feasible solution with its cost (or the solution of
+    % Algorithm 1, if it is returned without being feasible)
+    info.time_best = info.time_best_alg1;
+    info.time_best_wall = info.time_best_alg1_wall;
+    if info.feasible
+        q = find(info.best_hist(:, 3) <= V_out + 1e-9*max(1, abs(V_out)), 1);
+        if ~isempty(q)
+            info.time_best = info.best_hist(q, 1);
+            info.time_best_wall = info.best_hist(q, 2);
         end
     end
 

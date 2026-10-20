@@ -9,6 +9,8 @@
 %   .feasible: true if the GA found a feasible solution
 %   .cost: Cost (8) of the solution, computed by the GA
 %   .time: Computation time of the GA [s] (wall-clock time measured by the GA)
+%   .time_best: Time [s] at which the GA found its best solution (same clock as .time; NaN if the file does not
+%               have it, e.g., written by an older version of the GA)
 %   .generations: Number of generations of the GA (sum over its runs)
 %   .runs: Number of runs of the GA (more than 1 only with its option --restarts, see ga_MRTA)
 %   .seed: Seed of the random generator of the GA
@@ -36,6 +38,10 @@ function sol = read_GA_solution(file)
     [sol.cost, pos] = next_number(tok, pos, 'cost', file);
     pos = expect(tok, pos, 'time', file);
     [sol.time, pos] = next_number(tok, pos, 'time', file);
+    sol.time_best = NaN;
+    if pos <= numel(tok) && strcmp(tok{pos}, 'time_best') % Optional field
+        [sol.time_best, pos] = next_number(tok, pos + 1, 'time_best', file);
+    end
     pos = expect(tok, pos, 'generations', file);
     [sol.generations, pos] = next_number(tok, pos, 'generations', file);
     sol.runs = 1;

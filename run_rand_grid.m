@@ -1,4 +1,4 @@
-%% run_rand_grid() - Generates and solves a random grid problem (Section VII-B of the article)
+%% run_rand_grid() - Generates and solves a random grid problem (Section VII-A of the article)
 %
 % The problem is solved with PReDuaL (heur_distLag_MRTA) and as the central MILP (9).
 %
@@ -29,6 +29,10 @@
 % 'solver': struct, name/value options for MIQPholder.solve (used for all MILPs), e.g. struct('solver', "intlinprog")
 % 'central_max_time': maximum time [s] for the central MILP solver (default inf)
 % 'central_tight': add the constraints (7) to the central MILP (9) (default false)
+% 'central_from': folder with earlier results files of the same scenarios (same file names, e.g.,
+%                "results_old"), whose results of the central MILP are reused instead of solving
+%                it again (default "": always solve it). The central MILP is solved if the file or its
+%                results are missing, or if the scenario in the file is different
 %
 % OUTPUTS:
 % @res: Structure containing results of the solver (timing results, num. iterations, exit flag, etc.)
@@ -52,6 +56,7 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
         opt.solver struct = struct()
         opt.central_max_time (1, 1) double {mustBePositive} = inf
         opt.central_tight (1, 1) {mustBeNumericOrLogical} = false
+        opt.central_from {mustBeText} = ""
     end
     res = struct();
     test_info = struct();
@@ -65,7 +70,7 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
         return
     end
 
-    %% Generate random grid (with the costs normalized as in Section VII-A)
+    %% Generate random grid (with the costs normalized as in Section VII)
     [prob, a_loc, t_loc, gen_info] = gen_rand_grid_instance(param, seed);
     n_rows = gen_info.n_rows; % Rows of grid
     n_cols = gen_info.n_cols; % Columns of grid
@@ -76,6 +81,7 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
 
     %% Save initial configuration
     save_name = sprintf("%s_gs_%s_ss_%s", save_name, num2str(seed.graph), num2str(seed.state));
+    base_name = save_name; % Name of the file without folder and timestamp
     if opt.save_to_results
         if ~isfolder("results"); mkdir("results"); end
         save_name = sprintf("results/%s", save_name);
@@ -121,7 +127,7 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
         test_info.solved_heur = true;
 
         % Generate res structure, containing the results obtained from the solver
-        res.time_d_par_total = info_d.run_time_par_total; % Computation time of Alg. 1 + primal recovery (Section VII-B)
+        res.time_d_par_total = info_d.run_time_par_total; % Computation time of Alg. 1 + primal recovery (Section VII-A)
         res.time_d_alg1 = info_d.run_time_par_total_alg1; % Computation time of Alg. 1 only
         res.e_flag_alg1_d = info_d.e_flag_alg1; % Exit flag of Alg. 1 (before the primal recovery)
         res.V_alg1_d = info_d.V_alg1; % Cost of the solution of Alg. 1 (before the primal recovery)
@@ -138,6 +144,11 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
         res.k_d = info_d.k;
         res.num_inner_tl_d = info_d.num_inner_tl + info_d.num_inner_nosol; % MILPs of Alg. 1 stopped by 'inner_max_time'
         res.V_d = V_d;
+        % Time at which PReDuaL found its solution (computation time as time_d_par_total, and wall-clock time),
+        % and [time, wall-clock time, cost] of each new best solution (Alg. 1, then primal recovery)
+        res.time_best_d = info_d.time_best;
+        res.time_best_d_wall = info_d.time_best_wall;
+        res.hist_d = info_d.best_hist;
         % Computation time of the primal recovery: route selection problems (coordinator), MILP problems
         % of the agents, and the rest (route search, etc.)
         res.time_d_rec = NaN;
@@ -161,12 +172,24 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
 
     %% Solve MRTA problem using centralized MILP solver
 
-    if run_central
+    reused_central = false;
+    if run_central && ~isempty(char(opt.central_from))
+        [reused_central, res, test_info] = reuse_central(opt.central_from, base_name, res, test_info);
+        if reused_central
+            fprintf("  > Central solver: results reused from %s (exit flag %d)\n", test_info.central_from, res.e_flag_c);
+            if save_me
+                save(save_name, '-append', 'test_info', 'res');
+            end
+        end
+    end
+
+    if run_central && ~reused_central
 
         fprintf("  > Starting central solver at %s.", string(datetime('now', 'Format', 'd-MMM-y HH:mm:ss')));
         prob.build_MILP(a_loc, t_loc, 'sparse', true, 'condense', true, 'tight', opt.central_tight); % Build MILP problem (9)
         solver_opt = opt.solver;
         solver_opt.max_time = opt.central_max_time;
+        solver_opt.track_best = true; % Time at which the solver found its best solution
         solver_args = namedargs2cell(solver_opt);
         [~, V_c, info_c] = prob.miqp.solve(solver_args{:});
         fprintf(" Finished at %s with exit flag %d", string(datetime('now', 'Format', 'd-MMM-y HH:mm:ss')), info_c.e_flag);
@@ -174,6 +197,8 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
 
         % Update res structure with results of centralized solver
         res.time_c = info_c.run_time;
+        res.time_best_c = info_c.time_best; % Time at which the solver found its best solution (clock of time_c)
+        res.hist_c = info_c.best_hist; % [time, cost] of each new best solution of the solver
         res.e_flag_c = info_c.e_flag;
         res.feasible_c = info_c.feasible;
         res.V_c = V_c;
@@ -202,8 +227,8 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
         res.err_V_alg1 = NaN;
         if res.e_flag_c == 1 && res.e_flag_d >= 0
             res.err_V = (res.V_d - res.V_c)/res.V_c; % Cost error (in % in Table I)
-            fprintf("  > Time centralized: %g. Time PReDuaL: %g. Cost centralized: %g. Cost PReDuaL: %g. Error: %3.2f%%\n", ...
-                res.time_c, res.time_d_par_total, res.V_c, res.V_d, 100*res.err_V);
+            fprintf("  > Time centralized: %g (best solution at %g). Time PReDuaL: %g (best solution at %g). Cost centralized: %g. Cost PReDuaL: %g. Error: %3.2f%%\n", ...
+                res.time_c, res.time_best_c, res.time_d_par_total, res.time_best_d, res.V_c, res.V_d, 100*res.err_V);
         end
         if res.e_flag_c == 1 && res.e_flag_alg1_d >= 0
             res.err_V_alg1 = (res.V_alg1_d - res.V_c)/res.V_c; % Cost error of Alg. 1 without primal recovery
@@ -218,4 +243,36 @@ function [res, test_info] = run_rand_grid(param, seed, save_me, save_name, opt)
 
     fprintf("\n");
 
+end
+
+function [ok, res, test_info] = reuse_central(folder, base_name, res, test_info)
+    % Copies into @res the results of the central MILP saved in <folder>/<base_name>.mat for the same
+    % scenario. Returns ok = false (and @res and @test_info unchanged) if the file or its results of the
+    % central MILP are missing, or if its scenario (agent locations and pending tasks) is different
+    ok = false;
+    file = fullfile(char(folder), [char(base_name), '.mat']);
+    if ~isfile(file)
+        fprintf("  > Central solver: %s not found, solving it\n", file);
+        return
+    end
+    S = load(file, 'res', 'test_info');
+    if ~isfield(S, 'res') || ~isfield(S.res, 'e_flag_c') || ~isfield(S, 'test_info')
+        fprintf("  > Central solver: no results in %s, solving it\n", file);
+        return
+    end
+    T = S.test_info;
+    if T.nz ~= test_info.nz || T.num_tasks ~= test_info.num_tasks || ~isequal(T.a_loc, test_info.a_loc) ...
+            || ~isequal(T.t_loc, test_info.t_loc)
+        warning("run_rand_grid:central_from", "The scenario in %s is different: solving the central MILP", file);
+        return
+    end
+    fields = {'time_c', 'time_best_c', 'hist_c', 'e_flag_c', 'feasible_c', 'V_c', 'LB_c', 'gap_c'};
+    for q = 1:numel(fields)
+        if isfield(S.res, fields{q})
+            res.(fields{q}) = S.res.(fields{q});
+        end
+    end
+    test_info.solved_central = S.res.e_flag_c == 1;
+    test_info.central_from = file;
+    ok = true;
 end

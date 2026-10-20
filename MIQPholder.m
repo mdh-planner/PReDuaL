@@ -97,6 +97,11 @@ classdef MIQPholder < handle
             %   warmstart: Initial integer solution (used by MOSEK, and by intlinprog from MATLAB R2020b)
             %   relax: Solve the LP relaxation (integrality constraints are ignored) and return its
             %          dual variables. Uses MOSEK or linprog (default false)
+            %   track_best: Record when the solver found each new best integer solution (default false).
+            %               For MOSEK, the log of its mixed-integer optimizer (written to a temporary file and
+            %               captured from the screen output) is parsed: its lines are printed when new solutions
+            %               are found and every MSK_IPAR_LOG_MIO_FREQ relaxations, and its TIME column has a
+            %               resolution of 0.1 s or 0.01 s. For intlinprog, an output function is used
             %
             % OUTPUTS:
             %   @z_out: Solution (NaN if no solution was found)
@@ -113,6 +118,9 @@ classdef MIQPholder < handle
             %       .run_time: Solver time [s] (MOSEK optimizer time, or wall time for intlinprog/linprog)
             %       .wall_time: Wall time of the call [s]
             %       .solver: Name of the solver that was used
+            %       .time_best: (track_best) Solver time [s] at which the returned solution was found, on the
+            %                   clock of .run_time (NaN if it could not be determined)
+            %       .best_hist: (track_best) [time, objective] of each new best integer solution
             arguments
                 self MIQPholder
                 opt.solver (1, 1) string {mustBeMember(opt.solver, ["auto", "mosek", "intlinprog"])} = "auto"
@@ -121,7 +129,9 @@ classdef MIQPholder < handle
                 opt.mosek_param struct = struct()
                 opt.warmstart (:, 1) double = []
                 opt.relax (1, 1) {mustBeNumericOrLogical} = false
+                opt.track_best (1, 1) {mustBeNumericOrLogical} = false
             end
+            opt.track_best = opt.track_best && ~opt.relax;
 
             if nnz(self.primal.Q) > 0
                 error("MIQPholder:not_MILP", "MIQPholder.solve() can only solve MILP problems (Q = 0)");
@@ -180,6 +190,12 @@ classdef MIQPholder < handle
                 bound = -inf;
             end
             info.obj_bound = bound;
+
+            % Time at which the returned solution was found: first new best solution with its cost
+            if opt.track_best
+                if ~isfield(info, 'best_hist'); info.best_hist = []; end
+                info.time_best = MIQPholder.time_of_best(info.best_hist, V_out, info.run_time);
+            end
 
         end
 
@@ -251,9 +267,33 @@ classdef MIQPholder < handle
                 param.MSK_IPAR_LOG = double(opt.verbose);
             end
             cmd = 'minimize info';
-            if ~opt.verbose; cmd = [cmd, ' echo(0)']; end
-
-            [r, res] = mosekopt(cmd, prob, param);
+            if opt.track_best
+                % The log of the mixed-integer optimizer has the time of each new best solution. It is written
+                % to a temporary file and also captured from the screen output, and the first one that has it
+                % is parsed
+                param.MSK_IPAR_LOG = max(double(opt.verbose), 10);
+                param.MSK_IPAR_LOG_MIO = 4;
+                log_file = [tempname, '.log'];
+                if any(isspace(log_file))
+                    log_file = '';
+                else
+                    cmd = [cmd, ' log(', log_file, ')'];
+                end
+                r = -1; res = struct(); %#ok<NASGU> Assigned by evalc
+                screen = evalc('[r, res] = mosekopt(cmd, prob, param);');
+                if opt.verbose; fprintf('%s', screen); end
+                info.best_hist = [];
+                if ~isempty(log_file) && isfile(log_file)
+                    info.best_hist = MIQPholder.parse_mosek_mio_log(fileread(log_file));
+                    delete(log_file);
+                end
+                if isempty(info.best_hist)
+                    info.best_hist = MIQPholder.parse_mosek_mio_log(screen);
+                end
+            else
+                if ~opt.verbose; cmd = [cmd, ' echo(0)']; end
+                [r, res] = mosekopt(cmd, prob, param);
+            end
 
             info.mosek_e_flag = r;
             info.mosek.rcodestr = '';
@@ -354,6 +394,10 @@ classdef MIQPholder < handle
             max_time = opt.max_time;
             if ~isfinite(max_time); max_time = 1e7; end
             options = MIQPholder.optim_options('intlinprog', disp_level, max_time);
+            if opt.track_best
+                incumbents = IncumbentLog();
+                options = optimoptions(options, 'OutputFcn', @(x, values, state) incumbents.record(x, values, state));
+            end
             args = {full(self.primal.c), self.primal.idx_int(:)', Ain, bin, sparse(self.primal.C), self.primal.b, ...
                     self.primal.lbz, self.primal.ubz};
             if ~isempty(opt.warmstart) && length(opt.warmstart) == self.n && MIQPholder.intlinprog_has_x0()
@@ -365,6 +409,9 @@ classdef MIQPholder < handle
             info.run_time = toc(t_start);
             info.intlinprog.exitflag = exitflag;
             info.intlinprog.output = output;
+            if opt.track_best
+                info.best_hist = incumbents.hist;
+            end
 
             info.obj_bound = NaN;
             if isstruct(output) && isfield(output, 'absolutegap') && ~isempty(output.absolutegap) && ~isempty(z_out)
@@ -503,6 +550,50 @@ classdef MIQPholder < handle
                 cache(end+1) = struct('key', key, 'options', options);
             else
                 options = cache(q).options;
+            end
+        end
+
+        function hist = parse_mosek_mio_log(txt)
+            % Returns the rows [time, objective] of the log @txt of MOSEK's mixed-integer optimizer in which the
+            % best integer solution is known (columns TIME and BEST_INT_OBJ of its table), in the order of the
+            % log, or [] if the log has no such table (e.g., the log was not written)
+            hist = [];
+            col_obj = 0;
+            for line = regexp(txt, '\r?\n', 'split')
+                tok = strsplit(strtrim(line{1}));
+                if any(strcmp(tok, 'BEST_INT_OBJ')) && any(strcmp(tok, 'TIME')) % Header (repeated after a restart)
+                    col_obj = find(strcmp(tok, 'BEST_INT_OBJ'), 1);
+                    col_time = find(strcmp(tok, 'TIME'), 1);
+                    num_cols = numel(tok);
+                    if isempty(hist); hist = zeros(0, 2); end
+                    continue
+                end
+                if col_obj == 0 || numel(tok) ~= num_cols; continue; end
+                vals = str2double(tok); % "NA" (no integer solution yet) gives NaN
+                if isnan(vals(1)) || isnan(vals(col_time)); continue; end % Not a row of the table
+                if ~isnan(vals(col_obj))
+                    hist(end+1, :) = [vals(col_time), vals(col_obj)]; %#ok<AGROW>
+                end
+            end
+        end
+
+        function t = time_of_best(hist, V, t_end)
+            % Time of the first row of @hist ([time, objective] of the new best solutions) whose objective is
+            % at most V (the cost of the returned solution, up to the precision of the log). If no row matches
+            % (the solution was found after the last recorded one), the solver time @t_end. NaN if @V is not
+            % finite, or if @hist is [] (nothing recorded, e.g., the log could not be read)
+            t = NaN;
+            if ~isfinite(V); return; end
+            if isequal(size(hist), [0, 0])
+                warning("MIQPholder:time_best", ['The time of the best solution could not be determined ', ...
+                    '(the solver log has no table of integer solutions)']);
+                return
+            end
+            q = find(hist(:, 2) <= V + 1e-6*max(1, abs(V)), 1);
+            if isempty(q)
+                t = t_end;
+            else
+                t = hist(q, 1);
             end
         end
 

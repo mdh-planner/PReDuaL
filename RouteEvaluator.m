@@ -8,7 +8,7 @@
 %
 % The computations are grouped in rounds (see end_round), in which the agents work in parallel. Each
 % agent does its own computations of a round one after the other, so the time of a round is the
-% maximum over the agents of the sum of their solver times (Section VI-C).
+% maximum over the agents of the sum of their solver times (Section VI-D).
 %
 
 classdef RouteEvaluator < handle
@@ -27,8 +27,6 @@ classdef RouteEvaluator < handle
         D % Matrix of shortest-path distances between locations
         task_v % Location of each pending task
         task_rho % Cost rho_{t_j} of each pending task
-        lb_cache % 1 x m cell of containers.Map: key (set of locations) -> lower bound of the travel cost
-        max_lb_locs = 12 % Maximum number of task locations for the lower bounds (Held-Karp)
         solver % AgentSolver used to solve the MILP problems of the agents
         graph = [] % RouteGraph of the location graph (used by route_dp)
         use_dp = true % Try route_dp before solving the MILP problems (only if graph is set)
@@ -55,7 +53,6 @@ classdef RouteEvaluator < handle
             obj.idx_loc = zeros(m_z, m);
             obj.round_times = zeros(1, m);
             obj.cache = cell(1, m);
-            obj.lb_cache = cell(1, m);
             obj.c_a = cell(1, m);
             obj.D = distances(mrta.Gv);
             obj.task_v = idx_A.v(:);
@@ -66,7 +63,6 @@ classdef RouteEvaluator < handle
                     obj.idx_loc(:, i) = ag.idx_Evt(sub2ind(size(ag.Evt), idx_A.v(:), idx_A.t(:)));
                 end
                 obj.cache{i} = containers.Map('KeyType', 'char', 'ValueType', 'any');
-                obj.lb_cache{i} = containers.Map('KeyType', 'char', 'ValueType', 'double');
                 obj.c_a{i} = ag.build_c();
             end
         end
@@ -158,37 +154,9 @@ classdef RouteEvaluator < handle
             self.run_time_wall = self.run_time_wall + wall_time;
         end
 
-        function V = lower_bound(self, i, S)
-            % Returns a lower bound of cost(i, S): the cost if it is cached; otherwise, the length of the
-            % shortest walk from the location of the agent that visits the locations of the tasks S
-            % (Held-Karp on the shortest-path distances), plus the stopping cost and the task costs.
-            % Returns -Inf if the tasks are at more than max_lb_locs different locations.
-            S = sort(S(:))';
-            key = RouteEvaluator.set_key(S);
-            if isKey(self.cache{i}, key)
-                entry = self.cache{i}(key);
-                V = entry.V;
-                return
-            end
-            ag = self.mrta.agent{i};
-            locs = setdiff(unique(self.task_v(S)), ag.loc);
-            if length(locs) > self.max_lb_locs
-                V = -inf;
-                return
-            end
-            loc_key = ['l', sprintf('%d,', locs)];
-            if isKey(self.lb_cache{i}, loc_key)
-                travel = self.lb_cache{i}(loc_key);
-            else
-                travel = RouteEvaluator.open_walk_length(self.D, ag.loc, locs);
-                self.lb_cache{i}(loc_key) = travel;
-            end
-            V = travel + ag.param.cost_stop + sum(self.task_rho(S));
-        end
-
         function [ok, z, V, route] = route_dp(self, i, S)
             % Computes the route of agent @i for the pending tasks @S without solving its MILP problem
-            % (Section VI-B): the shortest walk from its location that visits the locations of the tasks
+            % (Section VI-C): the shortest walk from its location that visits the locations of the tasks
             % (Held-Karp on the shortest-path distances). If the walk is a simple path and its cost is
             % within dp_tol of the lower bound
             %   LB = length of the walk + stopping cost + task costs
@@ -234,17 +202,14 @@ classdef RouteEvaluator < handle
             self.cache{i}(RouteEvaluator.set_key(S)) = struct('V', V, 'z', z, 'path', self.mrta.agent{i}.get_path(z));
         end
 
-        function record_time(self, i, info)
-            % Records the time of a MILP problem solved by agent @i outside of evaluate/price_agents
-            self.add_time(i, info);
-            self.run_time_wall = self.run_time_wall + info.wall_time;
-        end
-
-        function [V, bound, z, info] = price_agents(self, duals)
+        function [V, bound, z, info] = price_agents(self, duals, ws_routes)
             % Pricing problems of the column generation for the dual variables @duals (one per pending
             % task): MILP problem of each agent with cost rho_{t_j} - duals(j) for each pending task j.
             % Returns the optimal values @V, lower bounds @bound of them, and the solutions @z and @info.
             % The bounds of Agent.prize_bounds are used if the agents use the valid inequalities.
+            % @ws_routes: (optional) cell array with a route of each agent (or empty) used to warm-start
+            %             its solver (see Agent.warm_start_z)
+            if nargin < 3; ws_routes = {}; end
             m = length(self.c_a);
             c = cell(1, m);
             lbz = cell(1, m);
@@ -259,7 +224,14 @@ classdef RouteEvaluator < handle
                     [lbz{i}, ubz{i}] = ag.prize_bounds(c{i}, ag.miqp.primal.lbz, ag.miqp.primal.ubz);
                 end
             end
-            [z, V, info, wall_time] = self.solver.solve(1:m, c, lbz, ubz);
+            ws = cell(1, m);
+            for i = 1:min(m, length(ws_routes))
+                if ~isempty(ws_routes{i})
+                    ag = self.mrta.agent{i};
+                    ws{i} = ag.warm_start_z(ag.route_to_z(ws_routes{i}, []), c{i});
+                end
+            end
+            [z, V, info, wall_time] = self.solver.solve(1:m, c, lbz, ubz, ws);
             bound = zeros(1, m);
             for i = 1:m
                 bound(i) = info{i}.obj_bound;
@@ -310,7 +282,8 @@ classdef RouteEvaluator < handle
 
         function [len, order] = open_walk_order(D, start, locs)
             % Held-Karp: length of the shortest walk that starts at @start and visits all the locations
-            % @locs (see open_walk_length), and the order in which it visits them (indices of @locs)
+            % @locs, where D(u, v) is the shortest-path distance from u to v, and the order in which it visits
+            % them (indices of @locs)
             k = length(locs);
             n_m = 2^k;
             Dl = D(locs, locs);
@@ -337,29 +310,6 @@ classdef RouteEvaluator < handle
                 mask = mask - bits(last);
                 last = q;
             end
-        end
-
-        function len = open_walk_length(D, start, locs)
-            % Held-Karp: length of the shortest walk that starts at @start and visits all the locations
-            % @locs, where D(u, v) is the shortest-path distance from u to v
-            k = length(locs);
-            if k == 0
-                len = 0;
-                return
-            end
-            Dl = D(locs, locs);
-            bits = 2.^(0:k-1);
-            dp = inf(2^k, k); % dp(mask+1, q): shortest walk visiting the set mask and ending at locs(q)
-            dp(bits + 1 + (0:k-1)*2^k) = D(start, locs);
-            for mask = 1:(2^k - 1)
-                cur = dp(mask + 1, :);
-                if all(isinf(cur)); continue; end
-                best = min(cur' + Dl, [], 1); % Shortest walk visiting mask and then each location
-                out = find(bitand(mask, bits) == 0); % Locations not in mask
-                idx = mask + bits(out) + 1 + (out - 1)*2^k;
-                dp(idx) = min(dp(idx), best(out));
-            end
-            len = min(dp(end, :));
         end
 
     end
