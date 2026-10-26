@@ -1,6 +1,5 @@
 %% main_run - Reproduces the results of Table I of the article
-%   B. Miloradovic, P. Krupa, M. Frasheri, C. Trubiani, "PReDuaL: A Primal-Recovering Residual-Driven
-%   Dual Lagrangian Method for Multi-Robot Task Allocation".
+%   "PReDuaL: Primal-Recovering Residual-Driven Dual Lagrangian Method for Multi-Robot Task Allocation".
 %
 % Solves the 10 random scenarios of each grid with PReDuaL, the central MILP, the GA given the same
 % computation time as PReDuaL, and CBBA. The results are saved in results/.
