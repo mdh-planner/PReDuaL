@@ -84,4 +84,4 @@ As in the article, the robots are assumed to solve their MILP problems in parall
 `run_rand_grid` also saves the time at which each method found the solution it returns: the central MILP (`res.time_best_c`, from the log of MOSEK or an output function of intlinprog; `res.hist_c` has the time and cost of each new best solution) and PReDuaL (`res.time_best_d`, computed as `res.time_d_par_total` up to that point; `res.hist_d` has the new best solutions of Algorithm 1 and the primal recovery). The GA (`res_ga.time_best`) and CBBA (`res_cbba.time_par_best`, `res_cbba.time_best`) record it too, and the analysis functions report it.
 
 > [!NOTE]
-> This repository is the replication package of the article "PReDuaL: A Primal-Recovering Residual-Driven Dual Lagrangian Method for Multi-Robot Task Allocation" by B. Miloradović, P. Krupa, M. Frasheri and C. Trubiani (under revision).
+> This repository is the replication package of the article "PReDuaL: A Primal-Recovering Residual-Driven Dual Lagrangian Method for Multi-Robot Task Allocation" (under revision).
